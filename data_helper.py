@@ -1,10 +1,9 @@
-import json
 import random
 import zipfile
 from io import BytesIO
 from functools import partial
-
 import numpy as np
+import pandas as pd
 import torch
 from torch.utils.data import DataLoader, Dataset, RandomSampler, SequentialSampler
 from transformers import BertTokenizer
@@ -65,10 +64,9 @@ class MultiModalDataset(Dataset):
             self.handles = [None for _ in range(args.num_workers)]
         else:
             self.handles = zipfile.ZipFile(self.zip_feat_path, 'r')
-        # load annotations
-        with open(ann_path, 'r', encoding='utf8') as f:
-            self.anns = json.load(f)
-        # initialize the text tokenizer
+        # 加载text文件
+        self.anns = pd.read_pickle(ann_path)
+        # 定义分词器
         self.tokenizer = BertTokenizer.from_pretrained(args.bert_dir, use_fast=True, cache_dir=args.bert_cache)
 
     def __len__(self) -> int:
@@ -76,7 +74,8 @@ class MultiModalDataset(Dataset):
 
     def get_visual_feats(self, idx: int) -> tuple:
         # read data from zipfile
-        vid = self.anns[idx]['id']
+        vid = self.anns.iloc[idx]['id']
+
         if self.num_workers > 0:
             worker_id = torch.utils.data.get_worker_info().id
             if self.handles[worker_id] is None:
@@ -123,20 +122,20 @@ class MultiModalDataset(Dataset):
         # Step 1, load visual features from zipfile.
         frame_input, frame_mask = self.get_visual_feats(idx)
 
-        # Step 2, load title tokens
-        title_input, title_mask = self.tokenize_text(self.anns[idx]['title'])
+        # Step 2, load text tokens
+        text_input, text_mask = self.tokenize_text(self.anns.iloc[idx]['text'])
 
         # Step 3, summarize into a dictionary
         data = dict(
             frame_input=frame_input,
             frame_mask=frame_mask,
-            title_input=title_input,
-            title_mask=title_mask
+            text_input=text_input,
+            text_mask=text_mask
         )
 
         # Step 4, load label if not test mode
         if not self.test_mode:
-            label = category_id_to_lv2id(self.anns[idx]['category_id'])
+            label = category_id_to_lv2id(self.anns.iloc[idx]['category_id'])
             data['label'] = torch.LongTensor([label])
 
         return data
