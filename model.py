@@ -18,7 +18,7 @@ class MultiModal(nn.Module):
         self.classifier = nn.Linear(args.fc_size, len(CATEGORY_ID_LIST))
 
     def forward(self, inputs, inference=False):
-        bert_embedding = self.bert(inputs['title_input'], inputs['title_mask'])['pooler_output']
+        bert_embedding = self.bert(inputs['text_input'], inputs['text_mask'])['pooler_output']
 
         vision_embedding = self.nextvlad(inputs['frame_input'], inputs['frame_mask'])
         vision_embedding = self.enhance(vision_embedding)
