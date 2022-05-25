@@ -6,6 +6,7 @@ import numpy as np
 from itertools import chain
 import pandas as pd
 
+
 ##
 def loadData(path=None,data_type=None):
     if data_type=='unlabel':
@@ -68,7 +69,7 @@ def truncate(a:list,maxLen):
     assert maxLen>=0
     #一共就a超长与否，b超长与否，组合的四种情况
     if len(a)>maxLen:#需要截断
-            a=a[:len1]
+            a=a[:maxLen]
 
     return a
 
