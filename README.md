@@ -22,15 +22,6 @@
 - [util.py](util.py) 是util函数
 
 
-### 安装依赖
-```bash
-# 安装Anaconda 和 pytorch，详情见官网：https://www.anaconda.com/ 和 https://pytorch.org/
-conda install pytorch torchvision torchaudio -c pytorch
-
-# 安装其余的依赖
-pip install -r requirements.txt
-```
-
 ### 训练模型
 ```python
 python main.py
@@ -49,3 +40,9 @@ python inference.py
 # 因为大家没有groud truth file，本地无法直接运行
 python evaluate.py
 ```
+
+### 上分过程
+|  时间   | 分数  | 具体操作 |
+|  ----  | ----  | --------  |
+| 2022/5/25  | 0.6271 |   无  |
+|   |  |
