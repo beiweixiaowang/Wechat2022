@@ -32,17 +32,20 @@ class MultiModal(nn.Module):
         self.classifier = nn.Linear(args.fc_size, len(CATEGORY_ID_LIST))
 
     def forward(self, inputs, inference=False):
-        # title 和 top20 keyword的embedding
-        bert_embedding_1 = self.bert(inputs['title_top20_input'], inputs['title_top20_mask'])['pooler_output']
-        # asr 和 ocr 的embedding
-        bert_embedding_2 = self.bert(inputs['asr_ocr_input'], inputs['asr_ocr_mask'])['pooler_output']
-        # 将bert和tfidf合并进行embedding， tfidf暂时不加
-        text_embedding = self.bert_fusion([bert_embedding_1, bert_embedding_2])
+        # title 和 top20 keyword的embedding 输出维度 (1, 256, 768)
+        bert_embedding_1 = self.bert.embeddings(inputs['title_top20_input'], inputs['title_top20_mask'])
+        # asr 和 ocr 的embedding 输出维度 (1, 256, 768)
+        bert_embedding_2 = self.bert.embeddings(inputs['asr_ocr_input'], inputs['asr_ocr_mask'])['pooler_output']
+        # 将bert和tfidf合并进行embedding, 采用cat融合 维度(1, 512, 768)
+        text_embedding = torch.cat([bert_embedding_1, bert_embedding_2], dim=1)
+        # vision_embedding 维度(1, 768)
         vision_embedding = self.nextvlad(inputs['frame_input'], inputs['frame_mask'])
-        # 最后hidden_size 1024
+        # 最后hidden_size 768
         vision_embedding = self.enhance(vision_embedding)
-        # 将文本embedding和视频embedding融合
-        final_embedding = self.text_vision_fusion([vision_embedding, text_embedding])
+        # vision embedding的特征变形 维度(1， 1， 768)
+        vision_embedding = torch.reshape(vision_embedding, shape=(1, 1, 768))
+        # 将文本embedding和视频embedding融合(1, 513, 768)
+        final_embedding = torch.cat([text_embedding, vision_embedding], dim=1)
         # 再过一遍bert
         final_embedding = self.bert(inputs_embeds=final_embedding.unsqueeze(0))['pooler_output']
         # 得到分类结果
@@ -153,10 +156,10 @@ class TextVisionConcatDenseSE(nn.Module):
     def forward(self, inputs):
         embeddings = torch.cat(inputs, dim=1)
         embeddings = self.fusion_dropout(embeddings)
-        embeddings = self.fusion(embeddings)
-        embeddings = self.fusion_ouput(embeddings)
+        embedding = self.fusion(embeddings)
+        embedding = self.fusion_ouput(embeddings)
 
-        return embeddings
+        return embedding
 
 
 class TextConcatDenseSE(nn.Module):
