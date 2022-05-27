@@ -40,7 +40,7 @@ def parse_args():
     # ========================== Title BERT =============================
     parser.add_argument('--bert_dir', type=str, default='pretrain_model/chinese-roberta-wwm-ext')
     parser.add_argument('--bert_cache', type=str, default='./pretrain_model/cache')
-    parser.add_argument('--bert_seq_length', type=int, default=300)
+    parser.add_argument('--bert_seq_length', type=int, default=256)
     parser.add_argument('--bert_learning_rate', type=float, default=5e-5)
     parser.add_argument('--bert_warmup_steps', type=int, default=5000)
     parser.add_argument('--bert_max_steps', type=int, default=30000)

@@ -32,11 +32,11 @@ class MultiModal(nn.Module):
         self.classifier = nn.Linear(args.fc_size, len(CATEGORY_ID_LIST))
 
     def forward(self, inputs, inference=False):
-        # title 和 top20 keyword的embedding 输出维度 (1, 256, 768)
+        # title 和 top20 keyword的embedding 输出维度 (1, 200, 768)
         bert_embedding_1 = self.bert.embeddings(inputs['title_top20_input'], inputs['title_top20_mask'])
         # asr 和 ocr 的embedding 输出维度 (1, 256, 768)
-        bert_embedding_2 = self.bert.embeddings(inputs['asr_ocr_input'], inputs['asr_ocr_mask'])['pooler_output']
-        # 将bert和tfidf合并进行embedding, 采用cat融合 维度(1, 512, 768)
+        bert_embedding_2 = self.bert.embeddings(inputs['asr_ocr_input'], inputs['asr_ocr_mask'])
+        # 将bert和tfidf合并进行embedding, 采用cat融合 维度(1, 456, 768)
         text_embedding = torch.cat([bert_embedding_1, bert_embedding_2], dim=1)
         # vision_embedding 维度(1, 768)
         vision_embedding = self.nextvlad(inputs['frame_input'], inputs['frame_mask'])
@@ -44,10 +44,10 @@ class MultiModal(nn.Module):
         vision_embedding = self.enhance(vision_embedding)
         # vision embedding的特征变形 维度(1， 1， 768)
         vision_embedding = torch.reshape(vision_embedding, shape=(1, 1, 768))
-        # 将文本embedding和视频embedding融合(1, 513, 768)
+        # 将文本embedding和视频embedding融合(1, 457, 768)
         final_embedding = torch.cat([text_embedding, vision_embedding], dim=1)
         # 再过一遍bert
-        final_embedding = self.bert(inputs_embeds=final_embedding.unsqueeze(0))['pooler_output']
+        final_embedding = self.bert(inputs_embeds=final_embedding)['pooler_output']
         # 得到分类结果
         prediction = self.classifier(final_embedding)
 

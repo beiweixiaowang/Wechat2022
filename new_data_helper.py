@@ -118,12 +118,18 @@ class MultiModalDataset(Dataset):
         mask = torch.LongTensor(encoded_inputs['attention_mask'])
         return input_ids, mask
 
+    def tokenize_text_title_topK(self, text: str) -> tuple:
+        encoded_inputs = self.tokenizer(text, max_length=200, padding='max_length', truncation=True)
+        input_ids = torch.LongTensor(encoded_inputs['input_ids'])
+        mask = torch.LongTensor(encoded_inputs['attention_mask'])
+        return input_ids, mask
+
     def __getitem__(self, idx: int) -> dict:
         # Step 1, load visual features from zipfile.
         frame_input, frame_mask = self.get_visual_feats(idx)
 
         # Step 2, load text tokens
-        title_top20_input, title_top20_mask = self.tokenize_text(self.anns.iloc[idx]['title_top20'])
+        title_top20_input, title_top20_mask = self.tokenize_text_title_topK(self.anns.iloc[idx]['title_top20'])
         asr_ocr_input, asr_ocr_mask = self.tokenize_text(self.anns.iloc[idx]['asr_ocr_text'])
 
         # Step 3, summarize into a dictionary
