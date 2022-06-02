@@ -1,60 +1,37 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from transformers import BertModel
-
+from transformers.models.bert.modeling_bert import BertConfig
+from transformers.models.bert.modeling_bert import BertEmbeddings, BertEncoder, BertPreTrainedModel
 from category_id_map import CATEGORY_ID_LIST
+from transformers.models.visual_bert.modeling_visual_bert import VisualBertConfig, VisualBertEncoder, \
+    VisualBertPreTrainedModel, VisualBertModel
 
 
 class MultiModal(nn.Module):
     def __init__(self, args):
         super().__init__()
-        self.bert = BertModel.from_pretrained(args.bert_dir, cache_dir=args.bert_cache)
+        self.bert_config = BertConfig.from_pretrained(args.bert_dir)
+        self.bert = LeahBert(self.bert_config)
+
+        self.visual_bert_config = VisualBertConfig.from_pretrained(args.visual_bert_dir)
+        self.visual_bert = Leah_visual_bert(self.visual_bert_config)
+        bert_output_size = 768
+
         self.nextvlad = NeXtVLAD(args.frame_embedding_size, args.vlad_cluster_size,
                                  output_size=args.vlad_hidden_size, dropout=args.dropout)
         self.enhance = SENet(channels=args.vlad_hidden_size, ratio=args.se_ratio)
-
-        bert_output_size = 768
-        # tfidf 维度太大，暂时不加
-        # tfidf_output_size = 128
-
-        self.bert_fusion = TextConcatDenseSE(text_input_size=bert_output_size*2,
-                                             hidden_size=args.bert_fusion_hidden_size,
-                                             dropout=args.dropout,
-                                             output_size=bert_output_size)
-
-        self.text_vision_fusion = TextVisionConcatDenseSE(multimodal_hidden_size=args.vlad_hidden_size + bert_output_size,
-                                                          hidden_size=args.bert_fusion_hidden_size,
-                                                          dropout=args.dropout,
-                                                          output_size=bert_output_size)
-
+        self.drop = nn.Dropout(args.dropout)
         self.fusion = ConcatDenseSE(args.vlad_hidden_size + bert_output_size, args.fc_size, args.se_ratio, args.dropout)
         self.classifier = nn.Linear(args.fc_size, len(CATEGORY_ID_LIST))
 
     def forward(self, inputs, inference=False):
-        # title 和 top20 keyword的embedding 输出维度 (1, 200, 768)
-        bert_embedding_1 = self.bert.embeddings(inputs['title_top20_input'], inputs['title_top20_mask'])
-        # asr 和 ocr 的embedding 输出维度 (1, 256, 768)
-        bert_embedding_2 = self.bert.embeddings(inputs['asr_ocr_input'], inputs['asr_ocr_mask'])
-        # 将bert和tfidf合并进行embedding, 采用cat融合 维度(1, 456, 768)
-        text_embedding = torch.cat([bert_embedding_1, bert_embedding_2], dim=1)
-        # vision_embedding 维度(batch_size / 2, 768)
-        vision_embedding = self.nextvlad(inputs['frame_input'], inputs['frame_mask'])
-        vision_embedding = self.enhance(vision_embedding)
+        embeddings, masks = self.bert(inputs)
 
-        # vision embedding的特征变形 维度(1， batch_size / 2， 768)
-        vision_embedding = torch.reshape(vision_embedding, shape=(16, 1, 768))
-        # 将文本embedding和视频embedding融合(1, 457, 768)
-        # print(vision_embedding.size())
-        # print(text_embedding.size())
+        embedding = self.visual_bert(inputs)
+        embedding = self.drop(embedding)
 
-        final_embedding = torch.cat([text_embedding, inputs['frame_input'], vision_embedding], dim=1)
-
-        # 再过一遍bert
-        final_embedding = self.bert(inputs_embeds=final_embedding)['pooler_output']
-        # 得到分类结果
-        prediction = self.classifier(final_embedding)
-
+        prediction = self.classifier(embedding)
         if inference:
             return torch.argmax(prediction, dim=1)
         else:
@@ -68,6 +45,62 @@ class MultiModal(nn.Module):
             pred_label_id = torch.argmax(prediction, dim=1)
             accuracy = (label == pred_label_id).float().sum() / label.shape[0]
         return loss, accuracy, pred_label_id, label
+
+
+class LeahBert(BertPreTrainedModel):
+    def __init__(self, config):
+        super().__init__(config)
+        self.config = config
+
+        self.embeddings = BertEmbeddings(config)
+        self.video_fc = nn.Linear(768, 768)
+        self.video_embeddings = BertEmbeddings(config)
+        self.encoder = BertEncoder(config)
+        self.act = nn.GELU()
+        self.init_weights()
+
+    def forward(self, inputs):
+        text_emb = self.embeddings(input_ids=inputs['text_input'])
+        # text input is [CLS][SEP] t e x t [SEP]
+        cls_emb = text_emb[:, 0:1, :]
+        text_emb = text_emb[:, 1:, :]
+
+        cls_mask = inputs['text_mask'][:, 0:1]
+        text_mask = inputs['text_mask'][:, 1:]
+
+        # reduce frame feature dimensions : 768 -> 768
+        video_feature = self.act(self.video_fc(inputs['frame_input']))
+        video_emb = self.video_embeddings(inputs_embeds=video_feature)
+
+        # [CLS] Video [SEP] Text [SEP]
+        embeddings = torch.cat([cls_emb, video_emb, text_emb], 1)
+
+        masks = torch.cat([cls_mask, inputs['frame_mask'], text_mask], 1)
+        masks = masks[:, None, None, :]
+        masks = (1.0 - masks) * -10000.0
+        #
+        # encoder_outputs = self.encoder(embedding_output, attention_mask=mask)['last_hidden_state'].mean(1)
+        return embeddings, masks
+
+
+class Leah_visual_bert(VisualBertPreTrainedModel):
+    def __init__(self, config):
+        super().__init__(config)
+        self.config = config
+        self.visual_bert_model = VisualBertModel(config)
+
+    def forward(self, inputs):
+        visual_attention_mask = torch.ones(inputs['frame_input'].shape[:-1], dtype=torch.float)
+        visual_token_type_ids = torch.ones(inputs['frame_input'].shape[:-1], dtype=torch.long)
+        pooler_output = self.visual_bert_model(
+            input_ids=inputs['text_input'].cuda(),
+            attention_mask=inputs['text_mask'].cuda(),
+            visual_embeds=inputs['frame_input'].cuda(),
+            visual_attention_mask=visual_attention_mask.cuda(),
+            # visual_token_type_ids=visual_token_type_ids.cuda()
+        ).pooler_output
+        print(pooler_output.size())
+        return pooler_output
 
 
 class NeXtVLAD(nn.Module):
@@ -147,35 +180,3 @@ class ConcatDenseSE(nn.Module):
         embedding = self.enhance(embedding)
 
         return embedding
-
-
-class TextVisionConcatDenseSE(nn.Module):
-    def __init__(self, multimodal_hidden_size, hidden_size, output_size, dropout):
-        super().__init__()
-        self.fusion = nn.Linear(multimodal_hidden_size, hidden_size)
-        self.fusion_dropout = nn.Dropout(dropout)
-        self.fusion_ouput = nn.Linear(hidden_size, output_size)
-        # self.enhance = SENet(channels=hidden_size, ratio=se_ratio)
-
-    def forward(self, inputs):
-        embeddings = torch.cat(inputs, dim=1)
-        embeddings = self.fusion_dropout(embeddings)
-        embedding = self.fusion(embeddings)
-        embedding = self.fusion_ouput(embeddings)
-
-        return embedding
-
-
-class TextConcatDenseSE(nn.Module):
-    def __init__(self, text_input_size, hidden_size, output_size, dropout):
-        super().__init__()
-        self.text_fusion = nn.Linear(text_input_size, hidden_size)
-        self.text_fusion_dropout = nn.Dropout(dropout)
-        self.text_feature_output = nn.Linear(hidden_size, output_size)
-
-    def forward(self, inputs):
-        text_embedding = torch.cat(inputs, dim=1)
-        text_embedding = self.text_fusion(text_embedding)
-        text_embedding = self.text_fusion_dropout(text_embedding)
-        text_embedding = self.text_feature_output(text_embedding)
-        return text_embedding

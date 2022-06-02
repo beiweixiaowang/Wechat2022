@@ -19,7 +19,8 @@ def create_dataloaders(args):
                                                                generator=torch.Generator().manual_seed(args.seed))
 
     if args.num_workers > 0:
-        dataloader_class = partial(DataLoader, pin_memory=True, num_workers=args.num_workers, prefetch_factor=args.prefetch)
+        dataloader_class = partial(DataLoader, pin_memory=True, num_workers=args.num_workers,
+                                   prefetch_factor=args.prefetch)
     else:
         # single-thread reading does not support prefetch_factor arg
         dataloader_class = partial(DataLoader, pin_memory=True, num_workers=0)
@@ -65,7 +66,8 @@ class MultiModalDataset(Dataset):
         else:
             self.handles = zipfile.ZipFile(self.zip_feat_path, 'r')
         # 加载text文件
-        self.anns = pd.read_pickle(ann_path)[:]
+        self.anns = pd.read_pickle(ann_path)[:100]
+        # print(self.anns.columns)
         # 定义分词器
         self.tokenizer = BertTokenizer.from_pretrained(args.bert_dir, use_fast=True, cache_dir=args.bert_cache)
 
@@ -85,8 +87,9 @@ class MultiModalDataset(Dataset):
             handle = self.handles
         raw_feats = np.load(BytesIO(handle.read(name=f'{vid}.npy')), allow_pickle=True)
         raw_feats = raw_feats.astype(np.float32)  # float16 to float32
+        frame_feats = torch.from_numpy(raw_feats)
+        # print(frame_feats.size())
         num_frames, feat_dim = raw_feats.shape
-
         feat = np.zeros((self.max_frame, feat_dim), dtype=np.float32)
         mask = np.ones((self.max_frame,), dtype=np.int32)
         if num_frames <= self.max_frame:
@@ -113,9 +116,18 @@ class MultiModalDataset(Dataset):
         return feat, mask
 
     def tokenize_text(self, text: str) -> tuple:
-        encoded_inputs = self.tokenizer(text, max_length=self.bert_seq_length, padding='max_length', truncation=True)
-        input_ids = torch.LongTensor(encoded_inputs['input_ids'])
-        mask = torch.LongTensor(encoded_inputs['attention_mask'])
+        encoded_inputs = self.tokenizer.encode_plus(
+            text,
+            add_special_tokens=True,
+            max_length=self.bert_seq_length,
+            padding='max_length',
+            truncation=True,
+            return_token_type_ids=False,
+            return_attention_mask=True,
+            return_tensors='pt',
+        )
+        input_ids = torch.tensor(encoded_inputs['input_ids']).flatten()
+        mask = torch.tensor(encoded_inputs['attention_mask']).flatten()
         return input_ids, mask
 
     def tokenize_text_title_topK(self, text: str) -> tuple:
@@ -127,19 +139,20 @@ class MultiModalDataset(Dataset):
     def __getitem__(self, idx: int) -> dict:
         # Step 1, load visual features from zipfile.
         frame_input, frame_mask = self.get_visual_feats(idx)
+        # frame_token_type_ids = torch.ones(frame_input.shape[:-1], dtype=torch.long)
 
         # Step 2, load text tokens
-        title_top20_input, title_top20_mask = self.tokenize_text_title_topK(self.anns.iloc[idx]['title_top20'])
-        asr_ocr_input, asr_ocr_mask = self.tokenize_text(self.anns.iloc[idx]['asr_ocr_text'])
+        # title_top20_input, title_top20_mask = self.tokenize_text_title_topK(self.anns.iloc[idx]['title_top20'])
+        text_input, text_mask = self.tokenize_text(self.anns.iloc[idx]['all_text'])
+
 
         # Step 3, summarize into a dictionary
         data = dict(
             frame_input=frame_input,
             frame_mask=frame_mask,
-            title_top20_input=title_top20_input,
-            title_top20_mask=title_top20_mask,
-            asr_ocr_input=asr_ocr_input,
-            asr_ocr_mask=asr_ocr_mask
+            # frame_token_type_ids=frame_token_type_ids,
+            text_input=text_input,
+            text_mask=text_mask,
         )
 
         # Step 4, load label if not test mode
@@ -148,4 +161,3 @@ class MultiModalDataset(Dataset):
             data['label'] = torch.LongTensor([label])
 
         return data
-
