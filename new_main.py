@@ -1,16 +1,17 @@
 import warnings
+
 warnings.simplefilter("ignore")
 import logging
 import os
 import time
 import torch
 
-from new_config import parse_args
-from new_data_helper import create_dataloaders
-from my_model import MultiModal
-from util import setup_device, setup_seed, setup_logging, build_optimizer, evaluate
+from config.new_config import parse_args
+from utils.new_data_helper import create_dataloaders
+from model.Leah_model_4 import MultiModal
+from utils.util import setup_device, setup_seed, setup_logging, build_optimizer, evaluate
 from ark_nlp.factory.utils.ema import EMA
-from ark_nlp.factory.utils.attack import FGM
+from ark_nlp.factory.utils.attack import FGM, PGD
 from tqdm import tqdm
 
 
@@ -48,55 +49,44 @@ def train_and_validate(args):
     best_score = args.best_score
     start_time = time.time()
     num_total_steps = len(train_dataloader) * args.max_epochs
-    # 增加ema和fgm
-    ema = EMA(model.parameters(), decay=0.995)
-    fgm = FGM(model)
+    # 增加ema和PGD
+    # ema = EMA(model.parameters(), decay=0.995)
     for epoch in range(args.max_epochs):
-        for batch in train_dataloader:
-            model.train()
-            loss, accuracy, _, _ = model(batch)
-            loss = loss.mean()
-            accuracy = accuracy.mean()
-            loss.backward()
+        with tqdm(total=len(train_dataloader)) as t:
+            for batch in train_dataloader:
+                t.set_description('Epoch %i' % epoch)
+                model.train()
+                loss, accuracy, _, _ = model(batch)
+                loss = loss.mean()
+                accuracy = accuracy.mean()
+                loss.backward()
+                optimizer.step()
+                # 训练过程中，更新完参数后，同步update shadow weights
+                # ema.update(model.parameters())
+                optimizer.zero_grad()
+                scheduler.step()
+                t.set_postfix(loss=float(loss.cpu()), acc=float(accuracy.cpu()))
+                time.sleep(0.1)
+                t.update(1)
+                step += 1
+            # 4. validation
+            # eval前，进行ema的权重替换
+            # ema.store(model.parameters())
+            # ema.copy_to(model.parameters())
+            loss, results = validate(model, val_dataloader)
+            # eval之后，恢复原来模型的参数
+            # ema.restore(model.parameters())
 
-            # 增加fgm
-            fgm.attack()
-            new_loss, accuracy_adv, adv1, adv2 = model(batch)
-            loss_adv = new_loss.mean()
-            loss_adv.backward()
-            fgm.restore()
+            results = {k: round(v, 4) for k, v in results.items()}
+            logging.info(f"Epoch {epoch} step {step}: loss {loss:.3f}, {results}")
 
-            optimizer.step()
-            # 训练过程中，更新完参数后，同步update shadow weights
-            ema.update(model.parameters())
-            optimizer.zero_grad()
-            scheduler.step()
-
-            step += 1
-            if step % args.print_steps == 0:
-                time_per_step = (time.time() - start_time) / max(1, step)
-                remaining_time = time_per_step * (num_total_steps - step)
-                remaining_time = time.strftime('%H:%M:%S', time.gmtime(remaining_time))
-                logging.info(f"Epoch {epoch} step {step} eta {remaining_time}: loss {loss:.3f}, accuracy {accuracy:.3f}")
-
-        # 4. validation
-        # eval前，进行ema的权重替换
-        ema.store(model.parameters())
-        ema.copy_to(model.parameters())
-        loss, results = validate(model, val_dataloader)
-        # eval之后，恢复原来模型的参数
-        ema.restore(model.parameters())
-
-        results = {k: round(v, 4) for k, v in results.items()}
-        logging.info(f"Epoch {epoch} step {step}: loss {loss:.3f}, {results}")
-
-        # 5. save checkpoint
-        mean_f1 = results['mean_f1']
-        if mean_f1 > best_score:
-            best_score = mean_f1
-            state_dict = model.module.state_dict() if args.device == 'cuda' else model.state_dict()
-            torch.save({'epoch': epoch, 'model_state_dict': state_dict, 'mean_f1': mean_f1},
-                       f'{args.savedmodel_path}/model_epoch_{epoch}_mean_f1_{mean_f1}.bin')
+            # 5. save checkpoint
+            mean_f1 = results['mean_f1']
+            if mean_f1 > best_score:
+                best_score = mean_f1
+                state_dict = model.module.state_dict() if args.device == 'cuda' else model.state_dict()
+                torch.save({'epoch': epoch, 'model_state_dict': state_dict, 'mean_f1': mean_f1},
+                           f'{args.savedmodel_path}/model_epoch_{epoch}_mean_f1_{mean_f1}.bin')
 
 
 def main():

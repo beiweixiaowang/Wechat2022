@@ -2,7 +2,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from category_id_map import CATEGORY_ID_LIST
+from utils.category_id_map import CATEGORY_ID_LIST
 from transformers.models.bert.modeling_bert import BertModel, BertConfig, BertOnlyMLMHead
 from transformers.models.bert.modeling_bert import BertEmbeddings, BertEncoder
 

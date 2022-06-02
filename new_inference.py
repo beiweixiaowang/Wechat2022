@@ -1,10 +1,10 @@
 import torch
 from torch.utils.data import SequentialSampler, DataLoader
 
-from new_config import parse_args
-from new_data_helper import MultiModalDataset
-from category_id_map import lv2id_to_category_id
-from Leah_model import MultiModal
+from config.new_config import parse_args
+from utils.new_data_helper import MultiModalDataset
+from utils.category_id_map import lv2id_to_category_id
+from model.Leah_model import MultiModal
 
 
 def inference():

@@ -2,8 +2,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from transformers import BertModel
-
-from category_id_map import CATEGORY_ID_LIST
+from utils.category_id_map import CATEGORY_ID_LIST
 
 
 class MultiModal(nn.Module):
@@ -17,15 +16,16 @@ class MultiModal(nn.Module):
         # tfidf 维度太大，暂时不加
         # tfidf_output_size = 128
 
-        self.bert_fusion = TextConcatDenseSE(text_input_size=bert_output_size*2,
+        self.bert_fusion = TextConcatDenseSE(text_input_size=bert_output_size * 2,
                                              hidden_size=args.bert_fusion_hidden_size,
                                              dropout=args.dropout,
                                              output_size=bert_output_size)
 
-        self.text_vision_fusion = TextVisionConcatDenseSE(multimodal_hidden_size=args.vlad_hidden_size + bert_output_size,
-                                                          hidden_size=args.bert_fusion_hidden_size,
-                                                          dropout=args.dropout,
-                                                          output_size=bert_output_size)
+        self.text_vision_fusion = TextVisionConcatDenseSE(
+            multimodal_hidden_size=args.vlad_hidden_size + bert_output_size,
+            hidden_size=args.bert_fusion_hidden_size,
+            dropout=args.dropout,
+            output_size=bert_output_size)
 
         self.fusion = ConcatDenseSE(args.vlad_hidden_size + bert_output_size, args.fc_size, args.se_ratio, args.dropout)
         self.act = nn.ReLU()

@@ -2,8 +2,8 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from transformers import BertModel
+from utils.category_id_map import CATEGORY_ID_LIST
 
-from category_id_map import CATEGORY_ID_LIST
 
 
 class MultiModal(nn.Module):

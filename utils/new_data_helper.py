@@ -8,7 +8,7 @@ import torch
 from torch.utils.data import DataLoader, Dataset, RandomSampler, SequentialSampler
 from transformers import BertTokenizer
 
-from category_id_map import category_id_to_lv2id
+from utils.category_id_map import category_id_to_lv2id
 
 
 def create_dataloaders(args):

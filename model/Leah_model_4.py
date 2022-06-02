@@ -3,7 +3,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from transformers.models.bert.modeling_bert import BertConfig
 from transformers.models.bert.modeling_bert import BertEmbeddings, BertEncoder, BertPreTrainedModel
-from category_id_map import CATEGORY_ID_LIST
+from utils.category_id_map import CATEGORY_ID_LIST
 from transformers.models.visual_bert.modeling_visual_bert import VisualBertConfig, VisualBertEncoder, \
     VisualBertPreTrainedModel, VisualBertModel
 
@@ -87,6 +87,8 @@ class Leah_visual_bert(VisualBertPreTrainedModel):
     def __init__(self, config):
         super().__init__(config)
         self.config = config
+        print(self.config)
+        # self.config['visual_embedding_dim'] = 32
         self.visual_bert_model = VisualBertModel(config)
 
     def forward(self, inputs):
@@ -97,7 +99,7 @@ class Leah_visual_bert(VisualBertPreTrainedModel):
             attention_mask=inputs['text_mask'].cuda(),
             visual_embeds=inputs['frame_input'].cuda(),
             visual_attention_mask=visual_attention_mask.cuda(),
-            # visual_token_type_ids=visual_token_type_ids.cuda()
+            visual_token_type_ids=visual_token_type_ids.cuda()
         ).pooler_output
         print(pooler_output.size())
         return pooler_output
